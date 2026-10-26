@@ -31,16 +31,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: engine-checks
+          cache-on-failure: true
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Engine, export, OCR and mobile bridge tests
-        run: cargo test --locked -p pdfcraft-render -p pdfcraft-edit -p pdfcraft-engine -p pdfcraft-ocr -p pdfcraft-automation -p pdfcraft-android --no-fail-fast
+        run: cargo test --profile low-disk --locked -p pdfcraft-render -p pdfcraft-edit -p pdfcraft-engine -p pdfcraft-ocr -p pdfcraft-automation -p pdfcraft-android --no-fail-fast
       - name: Vendored font-cache regression tests
         run: >-
           cargo test --manifest-path vendor/hayro-interpret/Cargo.toml --lib
           --config "patch.crates-io.hayro-syntax.path=\"$GITHUB_WORKSPACE/vendor/hayro-syntax\""
       - name: Clippy
-        run: cargo clippy --locked -p pdfcraft-render -p pdfcraft-edit -p pdfcraft-engine -p pdfcraft-ocr -p pdfcraft-automation -p pdfcraft-android --all-targets -- -D warnings
+        run: cargo clippy --profile low-disk --locked -p pdfcraft-render -p pdfcraft-edit -p pdfcraft-engine -p pdfcraft-ocr -p pdfcraft-automation -p pdfcraft-android --all-targets -- -D warnings
 
   android:
     name: ARM64 APK

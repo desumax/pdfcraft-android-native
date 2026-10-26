@@ -2350,7 +2350,10 @@ fn recognize_text_makes_a_scanned_page_searchable() {
     let q = words.iter().find(|w| w.text.to_lowercase().contains("quick")).unwrap();
     let l = words.iter().find(|w| w.text.to_lowercase().contains("lazy")).unwrap();
     let top = |w: &ocr::PlacedWord| w.origin[1] + w.up[1];
-    assert!(q.origin[0] < l.origin[0] && (top(q) - top(l)).abs() < 3.0, "{q:?} {l:?}");
+    // OCR word boxes follow the scan's physical scale. Compare their tops relative to
+    // lettering height, so doubling the synthetic scan's resolution keeps the same row test.
+    let row_tolerance = 0.2 * q.up[1].abs().max(l.up[1].abs());
+    assert!(q.origin[0] < l.origin[0] && (top(q) - top(l)).abs() < row_tolerance, "{q:?} {l:?}");
 
     // A second pass skips the page: it has text now.
     let again = s.recognize_text(id, &[], ocr::OcrSettings::default()).unwrap();
