@@ -24,7 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install pinned Rust
-        run: rustup toolchain install --component rustfmt --component clippy
+        run: |
+          rustup toolchain install
+          rustup component add rustfmt clippy
       - uses: Swatinem/rust-cache@v2
         with:
           key: engine-checks
@@ -56,7 +58,7 @@ jobs:
         with:
           key: android-checks
       - name: Install pinned NDK
-        run: sdkmanager "ndk;29.0.14206865"
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"'
       - name: Generate bindings, run Kotlin tests and assemble ARM64 debug APK
         working-directory: apps/pdfcraft-android/android
         run: ./gradlew testDebugUnitTest assembleDebug -Ppdfcraft.abis=arm64-v8a --no-daemon --max-workers=2
