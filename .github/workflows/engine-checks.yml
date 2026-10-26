@@ -1,0 +1,71 @@
+name: Engine and Android checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main, 'backport/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_BUILD_JOBS: 2
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  engine:
+    name: Rust engine and mobile bridge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install
+          rustup component add rustfmt clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: engine-checks
+          cache-on-failure: true
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Engine, export, OCR and mobile bridge tests
+        run: cargo test --profile low-disk --locked -p pdfcraft-render -p pdfcraft-edit -p pdfcraft-engine -p pdfcraft-ocr -p pdfcraft-automation -p pdfcraft-android --no-fail-fast
+      - name: Vendored font-cache regression tests
+        run: >-
+          cargo test --manifest-path vendor/hayro-interpret/Cargo.toml --lib
+          --config "patch.crates-io.hayro-syntax.path=\"$GITHUB_WORKSPACE/vendor/hayro-syntax\""
+      - name: Clippy
+        run: cargo clippy --profile low-disk --locked -p pdfcraft-render -p pdfcraft-edit -p pdfcraft-engine -p pdfcraft-ocr -p pdfcraft-automation -p pdfcraft-android --all-targets -- -D warnings
+
+  android:
+    name: ARM64 APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install pinned Rust and cargo-ndk
+        run: |
+          rustup toolchain install
+          cargo install cargo-ndk --version 4.1.2 --locked
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-checks
+      - name: Install pinned NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"'
+      - name: Generate bindings, run Kotlin tests and assemble ARM64 debug APK
+        working-directory: apps/pdfcraft-android/android
+        run: ./gradlew testDebugUnitTest assembleDebug -Ppdfcraft.abis=arm64-v8a --no-daemon --max-workers=2
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pdfcraft-stage1-arm64-debug
+          path: apps/pdfcraft-android/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

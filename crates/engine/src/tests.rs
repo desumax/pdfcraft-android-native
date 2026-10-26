@@ -2,6 +2,34 @@ use std::sync::Arc;
 
 use super::*;
 
+/// OCR's invisible text must not hide a later content stream, including after a save/reopen.
+/// This uses placed words directly, so it exercises PDF state without requiring OCR models.
+#[test]
+fn text_after_an_ocr_layer_stays_visible_after_saving() {
+    use pdfcraft_cos::{Dict, Document as CosDocument, ObjRef, Object, Stream};
+
+    let mut pdf = CosDocument::open(Arc::new(fixture(1))).unwrap();
+    let page = pdfcraft_model::pages(&pdf)[0].obj;
+    let words = [ocr::PlacedWord { text: "scan".into(), origin: [20.0, 250.0], across: [40.0, 0.0], up: [0.0, 12.0] }];
+    let layer = pdf.add(Object::Stream(Stream::flate(Dict::new(), &pdfcraft_ocr::text_layer(&words))));
+    let header = pdf.add(Object::Stream(Stream::flate(Dict::new(), b"BT /F1 24 Tf 20 150 Td (Header) Tj ET")));
+    pdf.update_dict(page, |d| {
+        d.set(b"Contents".to_vec(), Object::Array(vec![Object::Ref(layer), Object::Ref(header)]));
+        let fonts = Dict::from_iter([(b"F1".to_vec(), Object::Ref(ObjRef::new(3, 0))), (b"PCHelv".to_vec(), Object::Ref(ObjRef::new(3, 0)))]);
+        d.set(b"Resources".to_vec(), Object::Dict(Dict::from_iter([(b"Font".to_vec(), Object::Dict(fonts))])));
+    })
+    .unwrap();
+    let bytes = Arc::new(pdfcraft_cos::write_full(&pdf, &Default::default()).unwrap());
+    let mut session = Session::new();
+    let id = session.open("ocr-header.pdf", None, bytes, None).unwrap();
+    let document = session.get(id).unwrap();
+    let mut renderer = pdfcraft_render::PageRenderer::new(document.bytes.clone(), document.config.clone());
+    let shot = renderer.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
+    assert!(shot.error.is_none(), "{:?}", shot.error);
+    assert!(shot.rgba.as_chunks::<4>().0.iter().any(|p| p[..3].iter().all(|c| *c < 100)), "the header must have visible ink");
+    assert!(page_texts(&session, id)[0].contains("Header"), "the visible header remains searchable");
+}
+
 /// A minimal `n`-page document; page `i` shows "Page i+1".
 pub(crate) fn fixture(n: usize) -> Vec<u8> {
     let mut objs: Vec<Vec<u8>> = vec![b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()];
@@ -2303,7 +2331,9 @@ fn recognize_text_makes_a_scanned_page_searchable() {
     let mut s = Session::new().with_clock(|| 1_700_000_000);
     let text = s.create_from_text("t", "The quick brown fox jumps over the lazy dog.").unwrap();
     let id = s.open("text.pdf", None, text, None).unwrap();
-    let png = export::Exporter::new(s.get(id).unwrap()).png(0, 150.0).unwrap();
+    // Keep the synthetic scan at OCR's 300 DPI input resolution: at 150 DPI the model
+    // confuses the small lowercase q with a, independently of searchable-layer generation.
+    let png = export::Exporter::new(s.get(id).unwrap()).png(0, 300.0).unwrap();
     let scan = s.create_from_images(&[("scan.png".into(), png)]).unwrap();
     let id = s.open("scan.pdf", None, scan, None).unwrap();
     assert_eq!(page_texts(&s, id), [""], "a picture has no text");
@@ -2320,7 +2350,10 @@ fn recognize_text_makes_a_scanned_page_searchable() {
     let q = words.iter().find(|w| w.text.to_lowercase().contains("quick")).unwrap();
     let l = words.iter().find(|w| w.text.to_lowercase().contains("lazy")).unwrap();
     let top = |w: &ocr::PlacedWord| w.origin[1] + w.up[1];
-    assert!(q.origin[0] < l.origin[0] && (top(q) - top(l)).abs() < 3.0, "{q:?} {l:?}");
+    // OCR word boxes follow the scan's physical scale. Compare their tops relative to
+    // lettering height, so doubling the synthetic scan's resolution keeps the same row test.
+    let row_tolerance = 0.2 * q.up[1].abs().max(l.up[1].abs());
+    assert!(q.origin[0] < l.origin[0] && (top(q) - top(l)).abs() < row_tolerance, "{q:?} {l:?}");
 
     // A second pass skips the page: it has text now.
     let again = s.recognize_text(id, &[], ocr::OcrSettings::default()).unwrap();

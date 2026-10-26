@@ -355,6 +355,13 @@ struct TextDevice {
     glyphs: Vec<Drawn>,
 }
 
+/// Whether text diagnostics are enabled. Read once rather than scanning the process
+/// environment for every glyph (upstream #3955).
+fn text_debug() -> bool {
+    static DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DEBUG.get_or_init(|| std::env::var_os("PDFCRAFT_TEXT_DEBUG").is_some())
+}
+
 impl<'a> Device<'a> for TextDevice {
     fn set_soft_mask(&mut self, _: Option<SoftMask<'a>>) {}
     fn set_blend_mode(&mut self, _: BlendMode) {}
@@ -363,7 +370,7 @@ impl<'a> Device<'a> for TextDevice {
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'a>>, _: BlendMode) {}
     fn draw_glyph(&mut self, glyph: &Glyph<'a>, transform: Affine, glyph_transform: Affine, _: &Paint<'a>, _: &GlyphDrawMode) {
         let Some(u) = glyph.as_unicode() else {
-            if std::env::var_os("PDFCRAFT_TEXT_DEBUG").is_some() {
+            if text_debug() {
                 eprintln!("NOUNICODE {} {:?}", if matches!(glyph, Glyph::Type3(_)) { "t3" } else { "ol" }, (transform * glyph_transform).as_coeffs());
             }
             return;
@@ -378,7 +385,7 @@ impl<'a> Device<'a> for TextDevice {
         // Glyph space → view space. Glyph space uses 1000 units per em for outline glyphs; the em
         // box spans descender (−200) to ascender (800), the advance gives the width.
         let t = transform * glyph_transform;
-        if std::env::var_os("PDFCRAFT_TEXT_DEBUG").is_some() {
+        if text_debug() {
             let kind = if matches!(glyph, Glyph::Type3(_)) { "t3" } else { "ol" };
             eprintln!("{kind} {text:?} transform={:?} glyph_transform={:?}", transform.as_coeffs(), glyph_transform.as_coeffs());
         }
