@@ -2331,7 +2331,9 @@ fn recognize_text_makes_a_scanned_page_searchable() {
     let mut s = Session::new().with_clock(|| 1_700_000_000);
     let text = s.create_from_text("t", "The quick brown fox jumps over the lazy dog.").unwrap();
     let id = s.open("text.pdf", None, text, None).unwrap();
-    let png = export::Exporter::new(s.get(id).unwrap()).png(0, 150.0).unwrap();
+    // Keep the synthetic scan at OCR's 300 DPI input resolution: at 150 DPI the model
+    // confuses the small lowercase q with a, independently of searchable-layer generation.
+    let png = export::Exporter::new(s.get(id).unwrap()).png(0, 300.0).unwrap();
     let scan = s.create_from_images(&[("scan.png".into(), png)]).unwrap();
     let id = s.open("scan.pdf", None, scan, None).unwrap();
     assert_eq!(page_texts(&s, id), [""], "a picture has no text");
