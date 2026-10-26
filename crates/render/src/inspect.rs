@@ -1667,7 +1667,7 @@ mod tests {
     fn an_object_stream_over_the_cap_is_limited_not_failed() {
         // a well-formed file: catalog and page tree in the file, objects 3 and 5 in object stream 4
         let mut pdf = b"%PDF-1.7\n".to_vec();
-        let mut records = vec![[0u8; 7]; 7];
+        let mut records = [[0u8; 7]; 7];
         records[0] = [0, 0, 0, 0, 0, 255, 255];
         // the object stream (about 210 bytes) is larger than the cross-reference stream (49), so a
         // cap between the two opens the file but refuses the object stream
