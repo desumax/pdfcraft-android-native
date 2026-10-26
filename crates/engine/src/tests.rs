@@ -26,7 +26,7 @@ fn text_after_an_ocr_layer_stays_visible_after_saving() {
     let mut renderer = pdfcraft_render::PageRenderer::new(document.bytes.clone(), document.config.clone());
     let shot = renderer.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
     assert!(shot.error.is_none(), "{:?}", shot.error);
-    assert!(shot.rgba.chunks_exact(4).any(|p| p[..3].iter().all(|c| *c < 100)), "the header must have visible ink");
+    assert!(shot.rgba.as_chunks::<4>().0.iter().any(|p| p[..3].iter().all(|c| *c < 100)), "the header must have visible ink");
     assert!(page_texts(&session, id)[0].contains("Header"), "the visible header remains searchable");
 }
 

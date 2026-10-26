@@ -2,8 +2,9 @@ name: Engine and Android checks
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: [main]
+    branches: [main, 'backport/**']
   workflow_dispatch:
 
 permissions:
