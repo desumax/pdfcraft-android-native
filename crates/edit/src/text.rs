@@ -1485,7 +1485,15 @@ fn source_encodes(metrics: &Metrics, text: &str) -> bool {
     text.split(' ').all(|word| metrics.encode(word).is_some())
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How often [`source_space`] ran on this thread, for the test that pins it out of per-character loops.
+    pub(crate) static SOURCE_SPACE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn source_space(doc: &Document, fonts: &Dict, metrics: &Metrics) -> f64 {
+    #[cfg(test)]
+    SOURCE_SPACE_CALLS.with(|c| c.set(c.get().saturating_add(1)));
     let width = |m: &Metrics| m.encode(" ").map(|b| m.codes(&b).iter().map(|(c, _)| m.width(*c)).sum::<f64>());
     if let Some(w) = width(metrics) {
         return w;
@@ -1942,8 +1950,8 @@ fn rewrite_block_inlined(
     // A paragraph keeps its width (or takes the one asked for); a single line grows to the right
     // (to the left when right-to-left), up to the page's margin.
     let width = match style.width {
-        // Capped at the largest page PDF allows (14 400 pt).
-        Some(w) if w.is_finite() => w.clamp(size * k, 14_400.0),
+        // Cap both bounds at the largest PDF page (14 400 pt), including oversized text.
+        Some(w) if w.is_finite() => w.clamp((size * k).min(14_400.0), 14_400.0),
         Some(_) => return Err(EditError::Invalid("the paragraph's width must be a number".into())),
         None if anchored_right => (b.rect[2] - b.rect[0]).max(size * k).max(b.rect[2] + dx - (p.crop(doc)[0] + 36.0)),
         None if single_row => (b.rect[2] - b.rect[0]).max(size * k).max(p.crop(doc)[2] - 36.0 - (b.rect[0] + dx)),

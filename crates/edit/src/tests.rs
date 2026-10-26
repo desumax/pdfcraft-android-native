@@ -3722,3 +3722,80 @@ fn removing_all_text_keeps_the_artwork() {
     let content = String::from_utf8_lossy(&data);
     assert!(content.contains("rg") && content.contains("re") && content.contains("Do"), "{content}");
 }
+
+/// #2616: a subset whose ToUnicode has no space (as LaTeX and Sphinx output often has, spacing
+/// words with TJ kerning) makes finding the space width read every font on the page. That ran
+/// for every character of a multi-row draft, so each keystroke in a long paragraph took half a
+/// second. It runs once per font now, however long the paragraph.
+#[test]
+fn a_long_draft_in_a_font_without_a_space_works_out_the_space_width_once() {
+    // Two rows of one paragraph (14 pt apart) in the Chrome-style subset of `skia_subset_page`,
+    // whose ToUnicode here has no entry for the space glyph.
+    let mut doc =
+        text_page("BT /F3 12 Tf 72 700 Td <0177031602E001FB03050255> Tj ET          BT /F3 12 Tf 72 686 Td <008D0266035402FE01FB030503E6> Tj ET");
+    let program = doc.add(Object::Stream(Stream::flate(Dict::new(), include_bytes!("../../../assets/fonts/Inter-Regular.ttf"))));
+    let unicode = doc.add(Object::Stream(Stream::flate(
+        Dict::new(),
+        b"1 begincodespacerange <0000> <FFFF> endcodespacerange 12 beginbfchar <0177> <0050> <0316> <006F> <02E0> <006C>           <01FB> <0061> <0305> <006E> <0255> <0064> <008D> <0047> <0266> <0065> <0354> <0072> <02FE> <006D> <03E6> <0079>           <1000> <007A> endbfchar",
+    )));
+    let widths: Vec<Object> =
+        [(0x8D, 746), (0x177, 639), (0x1FB, 551), (0x255, 612), (0x266, 583), (0x2E0, 242), (0x2FE, 876), (0x305, 591), (0x316, 600)]
+            .into_iter()
+            .chain([(0x354, 376), (0x3E6, 515)])
+            .flat_map(|(cid, width)| [Object::Int(cid), Object::Array(vec![Object::Int(width)])])
+            .collect();
+    let descriptor = Dict::from_iter([
+        (b"Type".to_vec(), Object::name("FontDescriptor")),
+        (b"FontName".to_vec(), Object::name("BAAAAA+SampleSans")),
+        (b"Flags".to_vec(), Object::Int(32)),
+        (b"FontFile2".to_vec(), Object::Ref(program)),
+    ]);
+    let cid_font = Dict::from_iter([
+        (b"Type".to_vec(), Object::name("Font")),
+        (b"Subtype".to_vec(), Object::name("CIDFontType2")),
+        (b"BaseFont".to_vec(), Object::name("BAAAAA+SampleSans")),
+        (b"CIDToGIDMap".to_vec(), Object::name("Identity")),
+        (b"DW".to_vec(), Object::Int(562)),
+        (b"W".to_vec(), Object::Array(widths)),
+        (b"FontDescriptor".to_vec(), Object::Dict(descriptor)),
+    ]);
+    let font = Dict::from_iter([
+        (b"Type".to_vec(), Object::name("Font")),
+        (b"Subtype".to_vec(), Object::name("Type0")),
+        (b"BaseFont".to_vec(), Object::name("BAAAAA+SampleSans")),
+        (b"Encoding".to_vec(), Object::name("Identity-H")),
+        (b"DescendantFonts".to_vec(), Object::Array(vec![Object::Dict(cid_font)])),
+        (b"ToUnicode".to_vec(), Object::Ref(unicode)),
+    ]);
+    let p = pdfcraft_model::pages(&doc)[0].obj;
+    let fonts = Dict::from_iter([(b"F3".to_vec(), Object::Dict(font))]);
+    doc.update_dict(p, |d| d.set(b"Resources".to_vec(), Object::Dict(Dict::from_iter([(b"Font".to_vec(), Object::Dict(fonts))])))).unwrap();
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(blocks.len(), 1, "one paragraph: {:?}", blocks.iter().map(|b| &b.text).collect::<Vec<_>>());
+    let draft = "Poland and Germany
+"
+    .repeat(20);
+    text::SOURCE_SPACE_CALLS.with(|c| c.set(0));
+    let layout = text::text_edit_layout(&doc, 0, 0, draft.trim_end(), &text::BlockStyle::default()).unwrap();
+    let calls = text::SOURCE_SPACE_CALLS.with(std::cell::Cell::get);
+    assert!(layout.draft_rect.is_some_and(|r| r[2] > r[0]), "laid out: {:?}", layout.draft_rect);
+    assert!(calls <= 8, "the space width was worked out {calls} times for {} characters", draft.len());
+}
+
+/// Text set larger than the widest page PDF allows (14 400 pt) panicked when its paragraph was given
+/// a width: the width is clamped between the font size and 14 400 pt, and `f64::clamp` panics when
+/// its minimum is the larger. The width is now capped at 14 400 pt whatever the font size: from the
+/// file (`Tf`, or a small `Tf` scaled up by `Tm`) or asked for (the automation tools pass it through).
+#[test]
+fn width_on_a_paragraph_set_larger_than_a_page_is_capped_not_a_panic() {
+    let wide = text::BlockStyle { width: Some(200.0), ..Default::default() };
+    let huge = text::BlockStyle { size: Some(20_000.0), width: Some(200.0), ..Default::default() };
+    for (content, style) in [
+        ("BT /F2 20000 Tf 72 700 Td (ab) Tj ET", &wide),
+        ("BT /F2 1 Tf 20000 0 0 20000 72 700 Tm (ab) Tj ET", &wide),
+        ("BT /F2 12 Tf 72 700 Td (ab) Tj ET", &huge),
+    ] {
+        let mut doc = text_page(content);
+        text::rewrite_block(&mut doc, 0, 0, None, style).unwrap();
+    }
+}

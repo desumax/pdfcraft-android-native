@@ -2,6 +2,34 @@ use std::sync::Arc;
 
 use super::*;
 
+/// OCR's invisible text must not hide a later content stream, including after a save/reopen.
+/// This uses placed words directly, so it exercises PDF state without requiring OCR models.
+#[test]
+fn text_after_an_ocr_layer_stays_visible_after_saving() {
+    use pdfcraft_cos::{Dict, Document as CosDocument, Object, Stream};
+
+    let mut pdf = CosDocument::open(Arc::new(fixture(1))).unwrap();
+    let page = pdfcraft_model::pages(&pdf)[0].obj;
+    let words = [ocr::PlacedWord { text: "scan".into(), origin: [20.0, 250.0], across: [40.0, 0.0], up: [0.0, 12.0] }];
+    let layer = pdf.add(Object::Stream(Stream::flate(Dict::new(), pdfcraft_ocr::text_layer(&words))));
+    let header = pdf.add(Object::Stream(Stream::flate(Dict::new(), b"BT /F1 24 Tf 20 150 Td (Header) Tj ET")));
+    pdf.update_dict(page, |d| {
+        d.set(b"Contents".to_vec(), Object::Array(vec![Object::Ref(layer), Object::Ref(header)]));
+        let fonts = Dict::from_iter([(b"F1".to_vec(), Object::Ref((3, 0))), (b"PCHelv".to_vec(), Object::Ref((3, 0)))]);
+        d.set(b"Resources".to_vec(), Object::Dict(Dict::from_iter([(b"Font".to_vec(), Object::Dict(fonts))])));
+    })
+    .unwrap();
+    let bytes = Arc::new(pdfcraft_cos::write_full(&pdf, &Default::default()).unwrap());
+    let mut session = Session::new();
+    let id = session.open("ocr-header.pdf", None, bytes, None).unwrap();
+    let document = session.get(id).unwrap();
+    let mut renderer = pdfcraft_render::PageRenderer::new(document.bytes.clone(), document.config.clone());
+    let shot = renderer.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
+    assert!(shot.error.is_none(), "{:?}", shot.error);
+    assert!(shot.rgba.chunks_exact(4).any(|p| p[..3].iter().all(|c| *c < 100)), "the header must have visible ink");
+    assert!(page_texts(&session, id)[0].contains("Header"), "the visible header remains searchable");
+}
+
 /// A minimal `n`-page document; page `i` shows "Page i+1".
 pub(crate) fn fixture(n: usize) -> Vec<u8> {
     let mut objs: Vec<Vec<u8>> = vec![b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()];

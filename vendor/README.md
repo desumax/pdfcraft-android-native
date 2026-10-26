@@ -32,3 +32,7 @@ Later rendering errors, device loss, and non-winit renderer construction are unc
 Temporary: hayro is the bootstrap renderer and lopdf the bootstrap inspector (ADR-0004); M2.6 replaces them with our own devices and `cos`/`model`.
 
 Text extraction: hayro-interpret exposes `OutlineGlyph::is_vertical` from a Type0 font’s CMap writing mode. PdfCraft follows negative glyph-space y for WMode 1 so upright vertical columns can be searched (#126).
+
+## Android Stage 1 backport
+
+- hayro-interpret: cache CFF glyph-name lookups on first use, shared by font clones, preserving the first glyph for duplicate names. Backported from storytold/pdfcraft#3958 (5f256d53fd7bec23b289e6b94d61cff3b4208f7e); regression test: font::blob::tests::glyph_names_resolve_to_the_first_glyph_with_that_name. The upstream patch number is 44; Android retains its earlier vendor snapshot.

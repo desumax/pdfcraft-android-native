@@ -3007,15 +3007,13 @@ fn natural_image_stamps_through_tools_on_rotated_pages() {
         let mut reader = png::Decoder::new(std::io::Cursor::new(data)).read_info().unwrap();
         let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
         let info = reader.next_frame(&mut pixels).unwrap();
-        assert_eq!(info.color_type, png::ColorType::Rgba);
-        for ((x, y), colour) in [(80, 90), (120, 90), (80, 110), (120, 110)].into_iter().zip([
-            [240, 20, 20, 255],
-            [20, 180, 20, 255],
-            [20, 20, 240, 255],
-            [230, 180, 20, 255],
-        ]) {
-            let offset = ((y * info.width + x) * 4) as usize;
-            assert_eq!(&pixels[offset..offset + 4], &colour, "page rotation {degrees}");
+        // A rendered page is opaque, so it comes as RGB.
+        assert_eq!(info.color_type, png::ColorType::Rgb);
+        for ((x, y), colour) in
+            [(80, 90), (120, 90), (80, 110), (120, 110)].into_iter().zip([[240, 20, 20], [20, 180, 20], [20, 20, 240], [230, 180, 20]])
+        {
+            let offset = ((y * info.width + x) * 3) as usize;
+            assert_eq!(&pixels[offset..offset + 3], &colour, "page rotation {degrees}");
         }
     }
 }
