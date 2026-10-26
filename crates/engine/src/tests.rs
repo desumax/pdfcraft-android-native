@@ -6,16 +6,16 @@ use super::*;
 /// This uses placed words directly, so it exercises PDF state without requiring OCR models.
 #[test]
 fn text_after_an_ocr_layer_stays_visible_after_saving() {
-    use pdfcraft_cos::{Dict, Document as CosDocument, Object, Stream};
+    use pdfcraft_cos::{Dict, Document as CosDocument, ObjRef, Object, Stream};
 
     let mut pdf = CosDocument::open(Arc::new(fixture(1))).unwrap();
     let page = pdfcraft_model::pages(&pdf)[0].obj;
     let words = [ocr::PlacedWord { text: "scan".into(), origin: [20.0, 250.0], across: [40.0, 0.0], up: [0.0, 12.0] }];
-    let layer = pdf.add(Object::Stream(Stream::flate(Dict::new(), pdfcraft_ocr::text_layer(&words))));
+    let layer = pdf.add(Object::Stream(Stream::flate(Dict::new(), &pdfcraft_ocr::text_layer(&words))));
     let header = pdf.add(Object::Stream(Stream::flate(Dict::new(), b"BT /F1 24 Tf 20 150 Td (Header) Tj ET")));
     pdf.update_dict(page, |d| {
         d.set(b"Contents".to_vec(), Object::Array(vec![Object::Ref(layer), Object::Ref(header)]));
-        let fonts = Dict::from_iter([(b"F1".to_vec(), Object::Ref((3, 0))), (b"PCHelv".to_vec(), Object::Ref((3, 0)))]);
+        let fonts = Dict::from_iter([(b"F1".to_vec(), Object::Ref(ObjRef::new(3, 0))), (b"PCHelv".to_vec(), Object::Ref(ObjRef::new(3, 0)))]);
         d.set(b"Resources".to_vec(), Object::Dict(Dict::from_iter([(b"Font".to_vec(), Object::Dict(fonts))])));
     })
     .unwrap();

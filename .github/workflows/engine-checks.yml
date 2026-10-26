@@ -3,7 +3,7 @@ name: Engine and Android checks
 on:
   pull_request:
   push:
-    branches: [main, 'backport/**']
+    branches: [main]
   workflow_dispatch:
 
 permissions:
